@@ -1,0 +1,15 @@
+{
+  "name": "l-if-e",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "갈림 — 선택으로 다시 쓰는 어느 창작자의 삶",
+  "scripts": {
+    "start": "node scripts/serve.mjs",
+    "test": "node --test game/tests/*.test.mjs",
+    "check": "node --check game/dist/app.js && node --check game/dist/story.js && node --check scripts/serve.mjs"
+  },
+  "engines": { "node": ">=22" },
+  "license": "MIT",
+  "author": "jeiel85"
+}
