@@ -1,6 +1,6 @@
 {
   "name": "l-if-e",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
   "description": "갈림 — 선택으로 다시 쓰는 어느 창작자의 삶",
@@ -8,7 +8,7 @@
     "start": "node scripts/serve.mjs",
     "build": "node scripts/build.mjs",
     "test": "node --test game/tests/*.test.mjs",
-    "check": "node --check game/dist/app.js && node --check game/dist/story.js && node --check scripts/serve.mjs && node --check scripts/build.mjs"
+    "check": "node --check game/dist/app.js && node --check game/dist/story.js && node --check game/dist/interactions.js && node --check scripts/serve.mjs && node --check scripts/build.mjs"
   },
   "engines": { "node": ">=22" },
   "license": "MIT",

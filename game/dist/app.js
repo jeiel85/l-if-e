@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
 import { SAVE_KEY, RECORDS_KEY, LABELS, sceneFor, journey, endingFor, validSave, validateChoices } from './story.js';
+import { CLUES, CUTS, keepsakesOf, moveCut, forkLife, differences } from './interactions.js';
 
 const main = document.querySelector('#main');
 let save = null;
@@ -8,6 +9,8 @@ let storageAvailable = true;
 let recordView = null;
 let guessed = null;
 let noticeTimer;
+let pendingBranch = null;
+let previewTimer;
 const escape = value => String(value).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 function notify(message) {
   const node = document.querySelector('#notice');
@@ -18,7 +21,7 @@ function loadStorage() {
   try {
     const raw = localStorage.getItem(SAVE_KEY);
     if (raw) {
-      try { const parsed = JSON.parse(raw); if (!validSave(parsed)) throw new Error('Invalid save'); save = parsed; }
+      try { const parsed = JSON.parse(raw); if (!validSave(parsed)) throw new Error('Invalid save'); save = { ...parsed, keepsakes: keepsakesOf(parsed.keepsakes) }; }
       catch { notify('진행 기록을 읽지 못했어요. 새 이야기를 시작할 수 있습니다.'); }
     }
     const rawRecords = localStorage.getItem(RECORDS_KEY);
@@ -26,7 +29,7 @@ function loadStorage() {
       try {
         const parsed = JSON.parse(rawRecords);
         if (!Array.isArray(parsed)) throw new Error('Invalid records');
-        records = parsed.filter(r => r && validateChoices(r.choices) && r.choices.length === 6 && typeof r.date === 'string' && Number.isFinite(Date.parse(r.date))).slice(-100);
+        records = parsed.filter(r => r && validateChoices(r.choices) && r.choices.length === 6 && typeof r.date === 'string' && Number.isFinite(Date.parse(r.date))).slice(-100).map(r => ({ ...r, keepsakes: keepsakesOf(r.keepsakes) }));
         if (records.length !== parsed.length) notify('일부 기록을 읽지 못했어요. 확인 가능한 삶만 불러왔습니다.');
       } catch { notify('완성한 삶의 기록을 읽지 못했어요. 새 기록은 이 창에서 확인할 수 있습니다.'); }
     }
@@ -43,18 +46,19 @@ function archive() {
   if (!save || save.choices.length !== 6) return;
   const id = save.choices.join('');
   if (!records.some(r => r.choices.join('') === id)) {
-    records.push({ choices: [...save.choices], date: new Date().toISOString() });
+    records.push({ choices: [...save.choices], date: new Date().toISOString(), keepsakes: keepsakesOf(save.keepsakes), ...(validateChoices(save.fromChoices) && save.fromChoices.length === 6 ? { fromChoices: [...save.fromChoices] } : {}) });
     records = records.slice(-100);
   }
 }
 function navigate(hash) { if (location.hash === hash) render(); else location.hash = hash; }
 function start() {
-  save = { version: 1, choices: [], phase: 'scene' }; recordView = null; guessed = null;
+  save = { version: 1, choices: [], phase: 'scene', keepsakes: keepsakesOf() }; recordView = null; guessed = null;
   persist(); navigate('#play');
 }
 function requestRestart() {
   if (!save || save.phase === 'ending') return start();
-  document.querySelector('#restart-dialog').showModal();
+  const dialog = document.querySelector('#restart-dialog');
+  dialog.returnValue = 'cancel'; dialog.showModal();
 }
 document.querySelector('#restart-dialog').addEventListener('close', event => {
   if (event.target.returnValue === 'restart') start();
@@ -70,7 +74,9 @@ function art(kind = 'notebook', chapter = false) {
     dawn: ['아직 쓰지 않은 날들이', '당신을 기다린다.']
   };
   const text = lines[kind] || lines.notebook;
-  return `<div class="art-panel art-${escape(kind)}"><img src="./art.svg" alt="비 오는 창가, 펼쳐진 공책과 연필이 놓인 작은 책상" width="1000" height="1150"><div class="rain-lines" aria-hidden="true"></div><div class="frame-corners" aria-hidden="true"></div><div class="art-top"><span>${chapter ? 'THE UNWRITTEN SCENES' : 'LIFE, IF.'}</span><span class="edition">${chapter ? '당신의 장면' : '첫 번째 삶'}</span></div><div class="art-bottom"><small>어느 창작자의 이야기</small><p>${text[0]}<br>${text[1]}</p><span class="art-location">비가 그치기를 기다리는 사람</span></div></div>`;
+  const found = keepsakesOf(save?.keepsakes).found;
+  const panel = `<div class="art-panel art-${escape(kind)} ${chapter ? 'is-explorable' : ''}"><img src="./art.svg" alt="비 오는 창가, 펼쳐진 공책과 연필이 놓인 작은 책상" width="1000" height="1150"><div class="rain-lines" aria-hidden="true"></div><div class="frame-corners" aria-hidden="true"></div><div class="art-top"><span>${chapter ? 'THE UNWRITTEN SCENES' : 'LIFE, IF.'}</span><span class="edition">${chapter ? '당신의 장면' : '첫 번째 삶'}</span></div><div class="art-bottom"><small>어느 창작자의 이야기</small><p>${text[0]}<br>${text[1]}</p><span class="art-location">비가 그치기를 기다리는 사람</span></div>${chapter ? Object.entries(CLUES).map(([id, clue]) => `<button class="hotspot hotspot-${id} ${found.includes(id) ? 'found' : ''}" data-clue="${id}" aria-label="${clue.label} 살펴보기${found.includes(id) ? ' (발견함)' : ''}"><span class="hotspot-dot" aria-hidden="true">${found.includes(id) ? '✓' : '+'}</span><span class="hotspot-label">${clue.label}</span></button>`).join('') : ''}</div>`;
+  return chapter ? `<div class="scene-visual">${panel}<div class="explore-tools"><span><span class="clue-count">${found.length}</span>/3개의 기억 조각</span><button data-action="notebook">내 공책 열기 <span aria-hidden="true">↗</span></button></div><p class="explore-hint">그림 속 작은 +를 눌러 이 삶의 흔적을 살펴보세요.</p></div>` : panel;
 }
 function home() {
   const progress = save && save.phase !== 'ending';
@@ -82,7 +88,7 @@ function progressMarkup(index) {
   return `<div class="progress" aria-label="총 6장 중 ${Math.min(index + 1, 6)}장">${LABELS.map((label, i) => `<div class="${i < index ? 'done' : i === index ? 'current' : ''}"><span></span><small>${String(i + 1).padStart(2, '0')} ${label}</small></div>`).join('')}</div>`;
 }
 function play() {
-  if (!save) { save = { version: 1, choices: [], phase: 'scene' }; persist(); }
+  if (!save) { save = { version: 1, choices: [], phase: 'scene', keepsakes: keepsakesOf() }; persist(); }
   if (save.phase === 'ending') return ending(save.choices, false);
   const echo = save.phase === 'echo';
   const index = save.choices.length - (echo ? 1 : 0);
@@ -90,27 +96,140 @@ function play() {
   return `<div class="fade-in"><div class="play-heading"><button class="back-link" data-action="home">← 이야기 표지로</button><span class="chapter-count"><b>${String(index + 1).padStart(2, '0')}</b> / 06</span></div>${progressMarkup(index)}<div class="play-layout">${art(scene.art, true)}<section class="story-panel ${echo ? 'echo-panel' : ''}" aria-label="${echo ? '선택의 결과' : '이야기와 선택'}">${echo ? echoMarkup(scene, index) : sceneMarkup(scene, index)}</section></div></div>`;
 }
 function sceneMarkup(scene, index) {
-  return `<span class="eyebrow">SCENE ${String(index + 1).padStart(2, '0')} <span aria-hidden="true">/</span> ${scene.period}</span><h1>${scene.title}</h1>${scene.memory ? `<aside class="memory"><span aria-hidden="true">↳ </span>${scene.memory}</aside>` : ''}<div class="story-paragraphs">${scene.paragraphs.map(p => `<p>${p}</p>`).join('')}</div><h2 class="question">${scene.question}</h2><div class="choices">${scene.options.map((o, i) => `<button class="choice" data-choice="${i}"><span class="choice-number" aria-hidden="true">${i + 1}</span><span><strong>${o.title}</strong><small>${o.hint}</small></span><span class="choice-arrow" aria-hidden="true">↗</span></button>`).join('')}</div><div class="keyboard-help">숫자 키 1 · 2 · 3으로도 선택할 수 있어요</div><div class="play-foot"><span>${scene.place}</span><span>${storageAvailable ? '이 브라우저에 자동 저장' : '이 창에서만 진행 중'}</span></div>`;
+  const project = keepsakesOf(save.keepsakes);
+  const projectMemory = index > 0 && (project.title || project.cuts.join() !== Object.keys(CUTS).join()) ? `<aside class="project-memory">당신의 공책${project.title ? ` 《${escape(project.title)}》` : ''}은 ‘${CUTS[project.cuts[0]].title}’로 시작해 ‘${CUTS[project.cuts[2]].title}’로 끝납니다.</aside>` : '';
+  return `<span class="eyebrow">SCENE ${String(index + 1).padStart(2, '0')} <span aria-hidden="true">/</span> ${scene.period}</span><h1>${scene.title}</h1>${scene.memory ? `<aside class="memory"><span aria-hidden="true">↳ </span>${scene.memory}</aside>` : ''}${projectMemory}<div class="story-paragraphs">${scene.paragraphs.map(p => `<p>${p}</p>`).join('')}</div><h2 class="question">${scene.question}</h2><div class="choices">${scene.options.map((o, i) => `<button class="choice" data-choice="${i}"><span class="choice-number" aria-hidden="true">${i + 1}</span><span><strong>${o.title}</strong><small>${o.hint}</small></span><span class="choice-arrow" aria-hidden="true">↗</span></button>`).join('')}</div><div class="keyboard-help">숫자 키 1 · 2 · 3으로도 선택할 수 있어요</div><div class="play-foot"><span>${scene.place}</span><span>${storageAvailable ? '이 브라우저에 자동 저장' : '이 창에서만 진행 중'}</span></div>`;
 }
 function echoMarkup(scene, index) {
   const selected = scene.options[save.choices[index]];
   return `<span class="eyebrow">A CHOICE BECOMES A SCENE</span><div class="echo-symbol" aria-hidden="true">⌁</div><h1>선택이 남긴 것</h1><p class="chosen">${selected.title}</p><p class="echo-text">${selected.echo}</p><button class="button primary wide" data-action="next"><span>${index === 5 ? '내가 살아온 삶 돌아보기' : '다음 장면으로'}</span><span class="arrow" aria-hidden="true">→</span></button><p class="fine-print">당신이 선택한 가상의 경로입니다.</p>`;
 }
 function timeline(choices) {
-  return `<ol class="timeline">${journey(choices).map(item => `<li><span class="timeline-number">${String(item.chapter).padStart(2, '0')}</span><div><h3>${item.title}</h3><p class="timeline-choice">${item.choice}</p><p>${item.result}</p></div></li>`).join('')}</ol>`;
+  return `<ol class="timeline">${journey(choices).map(item => `<li><span class="timeline-number">${String(item.chapter).padStart(2, '0')}</span><div><h3>${item.title}</h3><p class="timeline-choice">${item.choice}</p><p>${item.result}</p><button class="branch-link" data-branch="${item.chapter - 1}">${item.chapter === 1 ? '첫 장면에서' : '이 장면에서'} 다른 선택 해보기 <span aria-hidden="true">↗</span></button></div></li>`).join('')}</ol>`;
 }
 function ending(choices, archived) {
   const result = endingFor(choices);
-  return `<section class="ending-shell fade-in"><button class="back-link" data-action="${archived ? 'records' : 'home'}">← ${archived ? '나의 기록으로' : '이야기 표지로'}</button><div class="ending-top"><span class="eyebrow">THE LIFE YOU HAVE WRITTEN</span><div class="ending-icon" aria-hidden="true">⑂</div><p class="episode-label" style="justify-content:center">서도윤으로 살아본 첫 번째 삶</p><h1>${result.title}</h1><p class="subtitle">${result.subtitle}</p><p class="ending-text">${result.text}</p><div class="ending-tags"><span class="tag">${result.word}</span><span class="tag">6개의 선택이 남긴 삶</span><span class="tag">${storageAvailable ? '이 브라우저에 기록됨' : '이 창에 기록됨'}</span></div></div><div class="ending-details"><div><small>당신이 완성한 것</small><p>${result.work}</p></div><div><small>당신에게 남은 배움</small><p>${result.learning}</p></div><div><small>그 과정에서 감수한 것</small><p>${result.tradeoff}</p></div><div><small>다른 길이 열린 순간</small><p>${journey(choices)[1].choice}</p></div></div><h2 class="section-title">당신의 선택이 만든 여섯 장면</h2>${timeline(choices)}<section class="guess-box" aria-labelledby="guess-title"><h2 id="guess-title">이 삶에서 누군가가 떠올랐나요?</h2><p id="guess-message">맞혀야 할 정답은 없어요. 떠오른 사람과 당신의 삶이 어떻게 달랐는지 생각해 보세요.</p><div class="guess-actions"><button data-guess="yes" aria-pressed="${guessed === 'yes'}">누군가 떠올랐어요</button><button data-guess="no" aria-pressed="${guessed === 'no'}">아직 모르겠어요</button></div></section><div class="ending-actions"><button class="button primary" data-action="restart">다른 선택으로 다시 살아보기 <span aria-hidden="true">↗</span></button><button class="button secondary" data-action="copy">이 삶의 기록 복사하기 ⧉</button><button class="button secondary" data-action="records">나의 기록 보기</button></div><p class="fine-print">이 결말은 창작입니다. 실존 인물의 미래를 예측하거나 실제 삶을 평가하지 않습니다.</p></section>`;
+  const entry = archived ? records[recordView] : save;
+  return `<section class="ending-shell fade-in"><button class="back-link" data-action="${archived ? 'records' : 'home'}">← ${archived ? '나의 기록으로' : '이야기 표지로'}</button><div class="ending-top"><span class="eyebrow">THE LIFE YOU HAVE WRITTEN</span><div class="ending-icon" aria-hidden="true">⑂</div><p class="episode-label" style="justify-content:center">서도윤으로 살아본 첫 번째 삶</p><h1>${result.title}</h1><p class="subtitle">${result.subtitle}</p><p class="ending-text">${result.text}</p><div class="ending-tags"><span class="tag">${result.word}</span><span class="tag">6개의 선택이 남긴 삶</span><span class="tag">${storageAvailable ? '이 브라우저에 기록됨' : '이 창에 기록됨'}</span></div></div><div class="ending-details"><div><small>당신이 완성한 것</small><p>${result.work}</p></div><div><small>당신에게 남은 배움</small><p>${result.learning}</p></div><div><small>그 과정에서 감수한 것</small><p>${result.tradeoff}</p></div><div><small>다른 길이 열린 순간</small><p>${journey(choices)[1].choice}</p></div></div>${keepsakeMarkup(entry?.keepsakes)}<h2 class="section-title">당신의 선택이 만든 여섯 장면</h2>${timeline(choices)}${comparisonMarkup(entry?.fromChoices, choices)}<section class="guess-box" aria-labelledby="guess-title"><h2 id="guess-title">이 삶에서 누군가가 떠올랐나요?</h2><p id="guess-message">맞혀야 할 정답은 없어요. 떠오른 사람과 당신의 삶이 어떻게 달랐는지 생각해 보세요.</p><div class="guess-actions"><button data-guess="yes" aria-pressed="${guessed === 'yes'}">누군가 떠올랐어요</button><button data-guess="no" aria-pressed="${guessed === 'no'}">아직 모르겠어요</button></div></section><div class="ending-actions"><button class="button primary" data-action="restart">다른 선택으로 다시 살아보기 <span aria-hidden="true">↗</span></button><button class="button secondary" data-action="copy">이 삶의 기록 복사하기 ⧉</button><button class="button secondary" data-action="records">나의 기록 보기</button></div><p class="fine-print">이 결말은 창작입니다. 실존 인물의 미래를 예측하거나 실제 삶을 평가하지 않습니다.</p></section>`;
 }
 function recordPage() {
   if (recordView !== null && records[recordView]) return ending(records[recordView].choices, true);
-  return `<section class="reading-page fade-in"><span class="eyebrow">YOUR UNWRITTEN LIVES</span><h1>당신이 살아본 삶</h1><p>같은 시작에서도, 다른 삶이 남습니다.<br>완성한 경로가 이 브라우저에 모여 있어요.</p>${records.length ? `<div class="record-list">${records.map((record, index) => ({ record, index })).reverse().map(({ record, index }) => { const result = endingFor(record.choices); return `<article class="record-card"><div><span class="record-date">${escape(new Date(record.date).toLocaleDateString('ko-KR'))} · EPISODE 01</span><h2>${result.title}</h2><p>${result.subtitle}</p></div><button class="button secondary" data-record="${index}">이 삶 돌아보기 ↗</button></article>`; }).join('')}</div><p class="fine-print">같은 선택으로 완성한 삶은 한 번만 기록됩니다. 최대 100개 경로를 보관합니다.</p>` : `<div class="empty-state"><span class="empty-icon" aria-hidden="true">◌</span><h2>아직 쓰이지 않은 이야기</h2><p>여섯 번의 선택을 마치면,<br>당신이 살아본 첫 번째 삶이 이곳에 남습니다.</p><button class="button primary" data-action="${save ? 'continue' : 'start'}">${save ? '이어서 살아보기' : '첫 번째 삶 시작하기'} ↗</button></div>`}<p class="fine-print">${storageAvailable ? '기록은 기기 간에 동기화되지 않습니다. 브라우저 데이터를 지우면 함께 삭제됩니다.' : '브라우저 저장소를 사용할 수 없습니다. 창을 닫기 전에 삶의 기록을 복사해 보관해 주세요.'}</p></section>`;
+  return `<section class="reading-page fade-in"><span class="eyebrow">YOUR UNWRITTEN LIVES</span><h1>당신이 살아본 삶</h1><p>같은 시작에서도, 다른 삶이 남습니다.<br>완성한 경로가 이 브라우저에 모여 있어요.</p>${records.length ? `<div class="record-list">${records.map((record, index) => ({ record, index })).reverse().map(({ record, index }) => { const result = endingFor(record.choices); return `<article class="record-card"><div><span class="record-date">${escape(new Date(record.date).toLocaleDateString('ko-KR'))} · EPISODE 01</span><h2>${result.title}</h2><p>${result.subtitle}</p></div><button class="button secondary" data-record="${index}">이 삶 돌아보기 ↗</button></article>`; }).join('')}</div><p class="fine-print">같은 선택으로 완성한 삶은 최초의 공책과 함께 한 번만 기록됩니다. 최대 100개 경로를 보관합니다.</p>` : `<div class="empty-state"><span class="empty-icon" aria-hidden="true">◌</span><h2>아직 쓰이지 않은 이야기</h2><p>여섯 번의 선택을 마치면,<br>당신이 살아본 첫 번째 삶이 이곳에 남습니다.</p><button class="button primary" data-action="${save ? 'continue' : 'start'}">${save ? '이어서 살아보기' : '첫 번째 삶 시작하기'} ↗</button></div>`}<p class="fine-print">${storageAvailable ? '기록은 기기 간에 동기화되지 않습니다. 브라우저 데이터를 지우면 함께 삭제됩니다.' : '브라우저 저장소를 사용할 수 없습니다. 창을 닫기 전에 삶의 기록을 복사해 보관해 주세요.'}</p></section>`;
 }
 function about(credits = false) {
   if (credits) return `<section class="reading-page fade-in"><span class="eyebrow">CREDITS & LICENSES</span><h1>함께 쓰는 이야기</h1><div class="callout"><p>코드는 자유롭게 고치고, 이야기는 출처를 남겨 나눌 수 있습니다.</p></div><h2>소스 코드 · MIT</h2><p>게임 엔진, 화면 구성 코드, 스타일, 테스트 및 실행 도구는 MIT 라이선스입니다. 저작권 고지와 라이선스 전문을 유지해 주세요.</p><h2>오리지널 콘텐츠 · CC BY 4.0</h2><p>직접 쓴 가상 시나리오, 선택지, 결말, 직접 제작한 창가 일러스트와 아이콘은 <a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener noreferrer">크리에이티브 커먼즈 저작자표시 4.0 국제</a>로 제공합니다. 저작자와 원본 링크, 라이선스를 표시하고 변경 여부를 밝혀 주세요.</p><p>표시 예: 「갈림」, jeiel85, https://github.com/jeiel85/l-if-e, CC BY 4.0. 수정한 경우 수정 사실을 덧붙여 주세요.</p><h2>참고 자료와 실존 인물</h2><p>인터뷰 원문·사진·영상 등 외부 자료는 이 프로젝트의 라이선스에 포함되지 않습니다. 실제 인물의 이름·초상·인격에 관한 권리를 허락한다는 뜻도 아닙니다. 게임의 이미지와 소리는 직접 제작했으며 외부 사진·음원·웹 폰트를 사용하지 않습니다.</p><p>기획과 구현: jeiel85 · 제작 보조: OpenAI Codex<br>라이선스 전문과 파일별 적용 범위: <a href="https://github.com/jeiel85/l-if-e" target="_blank" rel="noopener noreferrer">GitHub 저장소 ↗</a></p><p><a href="#about">이야기의 재료와 출처 보기 →</a></p></section>`;
-  return `<section class="reading-page fade-in"><span class="eyebrow">BEHIND THE STORY</span><h1>사실의 조각에서,<br>다른 삶의 가능성으로.</h1><div class="callout"><p>서도윤은 가상의 인물입니다. 공개된 창작자의 경험을 소재로 삼았지만, 이 게임은 실제 전기나 실제 선택을 맞히는 퀴즈가 아닙니다.</p></div><h2>무엇을 참고했나요?</h2><p>어린 시절 그림으로 이야기를 만들었던 기억, 함께 영화를 보던 모임, 비가 내리던 작은 촬영 현장. 공개 인터뷰에서 확인한 경험을 이야기의 출발점으로 사용했습니다.</p><h2>무엇을 창작했나요?</h2><p>주인공의 가명, 주변 사람, 대화, 시간표, 제안, 갈등과 모든 선택지·결과를 새로 썼습니다. 서로 다른 선택이 어떤 경험으로 이어질지는 게임 안에서 설계한 것이며, 실존 인물이 실제로 마주했던 대안이나 일어났을 미래를 뜻하지 않습니다.</p><h2>왜 정답을 알려주지 않나요?</h2><p>누군가가 떠올라도, 그렇지 않아도 이야기는 완성됩니다. 누가 더 유명해졌는지보다 내가 무엇을 택했고 무엇을 감수했는지 돌아보는 경험을 만들고 싶었습니다.</p><details><summary>참고한 공개 자료 열기</summary><p>아래 원문에는 실명이 나옵니다. 누구인지 먼저 추측해 보고 싶다면 플레이를 마친 뒤 열어보세요.</p><ul><li><a href="https://www.bafta.org/media-centre/press-releases/screenwriters-lecture-series-2019-bong-joon-ho/" target="_blank" rel="noopener noreferrer">BAFTA · 2019 각본가 강연</a> — 어린 시절 그림과 이야기 만들기.</li><li><a href="https://www.filmlinc.org/daily/bong-joon-ho-on-family-and-class-in-parasite-collecting-films-and-memories-of-murder/" target="_blank" rel="noopener noreferrer">Film at Lincoln Center · 2019 대담</a> — 영화 모임과 배움의 경험.</li><li><a href="https://www.festival-cannes.com/en/2011/interview-with-bong-joon-ho/" target="_blank" rel="noopener noreferrer">칸 영화제 · 2011 인터뷰</a> — 비 내리던 단편 촬영의 기억.</li></ul><p>원문은 해당 저작권자의 자료입니다. 문장·사진·영상을 게임에 복제하지 않았습니다.</p></details><details><summary>진행 기록과 개인정보</summary><p>로그인이나 서버 저장 기능이 없습니다. 선택 기록은 이 브라우저의 로컬 저장소에 저장합니다. 이름 추측은 저장하거나 전송하지 않습니다. 외부 분석 도구를 넣지 않았습니다. 사이트 호스팅 제공자는 자체 운영 정책에 따라 접속 정보를 처리할 수 있습니다.</p></details><p><a href="#credits">저작자 표시와 라이선스 보기 →</a></p></section>`;
+  return `<section class="reading-page fade-in"><span class="eyebrow">BEHIND THE STORY</span><h1>사실의 조각에서,<br>다른 삶의 가능성으로.</h1><div class="callout"><p>서도윤은 가상의 인물입니다. 공개된 창작자의 경험을 소재로 삼았지만, 이 게임은 실제 전기나 실제 선택을 맞히는 퀴즈가 아닙니다.</p></div><h2>무엇을 참고했나요?</h2><p>어린 시절 그림으로 이야기를 만들었던 기억, 함께 영화를 보던 모임, 비가 내리던 작은 촬영 현장. 공개 인터뷰에서 확인한 경험을 이야기의 출발점으로 사용했습니다.</p><h2>무엇을 창작했나요?</h2><p>주인공의 가명, 주변 사람, 대화, 시간표, 제안, 갈등과 모든 선택지·결과를 새로 썼습니다. 서로 다른 선택이 어떤 경험으로 이어질지는 게임 안에서 설계한 것이며, 실존 인물이 실제로 마주했던 대안이나 일어났을 미래를 뜻하지 않습니다.</p><h2>왜 정답을 알려주지 않나요?</h2><p>누군가가 떠올라도, 그렇지 않아도 이야기는 완성됩니다. 누가 더 유명해졌는지보다 내가 무엇을 택했고 무엇을 감수했는지 돌아보는 경험을 만들고 싶었습니다.</p><details><summary>참고한 공개 자료 열기</summary><p>아래 원문에는 실명이 나옵니다. 누구인지 먼저 추측해 보고 싶다면 플레이를 마친 뒤 열어보세요.</p><ul><li><a href="https://www.bafta.org/media-centre/press-releases/screenwriters-lecture-series-2019-bong-joon-ho/" target="_blank" rel="noopener noreferrer">BAFTA · 2019 각본가 강연</a> — 어린 시절 그림과 이야기 만들기.</li><li><a href="https://www.filmlinc.org/daily/bong-joon-ho-on-family-and-class-in-parasite-collecting-films-and-memories-of-murder/" target="_blank" rel="noopener noreferrer">Film at Lincoln Center · 2019 대담</a> — 영화 모임과 배움의 경험.</li><li><a href="https://www.festival-cannes.com/en/2011/interview-with-bong-joon-ho/" target="_blank" rel="noopener noreferrer">칸 영화제 · 2011 인터뷰</a> — 비 내리던 단편 촬영의 기억.</li></ul><p>원문은 해당 저작권자의 자료입니다. 문장·사진·영상을 게임에 복제하지 않았습니다.</p></details><details><summary>진행 기록과 개인정보</summary><p>로그인이나 서버 저장 기능이 없습니다. 선택 기록과 공책 제목, 장면 순서, 발견한 기억 조각은 이 브라우저의 로컬 저장소에 저장합니다. 이름 추측은 저장하거나 전송하지 않습니다. 외부 분석 도구를 넣지 않았습니다. 사이트 호스팅 제공자는 자체 운영 정책에 따라 접속 정보를 처리할 수 있습니다.</p></details><p><a href="#credits">저작자 표시와 라이선스 보기 →</a></p></section>`;
 }
+function sketch(id) {
+  return `<svg viewBox="0 0 100 100" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${CUTS[id].path}</svg>`;
+}
+function keepsakeMarkup(value) {
+  const book = keepsakesOf(value);
+  if (!book.title && !book.found.length && book.cuts.join() === Object.keys(CUTS).join()) return '';
+  return `<section class="keepsake-card"><span class="eyebrow">THE THINGS YOU KEPT</span><h2>${book.title ? `《${escape(book.title)}》` : '당신의 공책'}</h2><p>${book.cuts.map(id => CUTS[id].title).join(' → ')}</p><div class="collected-notes">${book.found.map(id => `<span>${CLUES[id].symbol} ${CLUES[id].label}</span>`).join('')}</div><small>직접 만든 이야기와 발견한 ${book.found.length}개의 기억 조각이 이 삶에 남았습니다.</small></section>`;
+}
+function comparisonMarkup(before, after) {
+  if (!validateChoices(before) || before.length !== 6) return '';
+  const changes = differences(before, after);
+  return `<section class="life-comparison"><span class="eyebrow">THE OTHER PATH</span><h2>다른 선택이 만든 장면</h2><p class="comparison-intro">돌아가기 전의 삶과 지금의 삶을 나란히 놓아보세요.</p>${changes.length ? changes.map(item => `<article><h3>${String(item.chapter).padStart(2, '0')}번째 장면</h3><div class="comparison-pair"><div><small>이전의 삶</small><strong>${item.before.choice}</strong><p>${item.before.result}</p></div><div><small>지금의 삶</small><strong>${item.after.choice}</strong><p>${item.after.result}</p></div></div></article>`).join('') : '<p>같은 선택을 이어가, 같은 장면에 도착했습니다. 다른 선택도 언제든 시도할 수 있어요.</p>'}</section>`;
+}
+function openClue(id) {
+  if (!save || !Object.hasOwn(CLUES, id)) return;
+  const clue = CLUES[id];
+  save.keepsakes = keepsakesOf(save.keepsakes);
+  if (!save.keepsakes.found.includes(id)) { save.keepsakes.found.push(id); persist(); }
+  syncExploration();
+  document.querySelector('#explore-body').innerHTML = `<span class="eyebrow">A FRAGMENT OF THIS LIFE</span><div class="clue-symbol" aria-hidden="true">${clue.symbol}</div><h2 id="explore-title">${clue.title}</h2><p class="clue-prose">${clue.text}</p><p class="clue-saved">✓ 공책에 기억 조각을 남겼어요 · ${save.keepsakes.found.length}/3</p><p class="fine-print">이 물건과 설명은 게임을 위해 창작했습니다.</p><button class="button primary wide" data-explore="notebook">공책을 펼쳐보기 <span aria-hidden="true">↗</span></button>`;
+  const dialog = document.querySelector('#explore-dialog');
+  if (!dialog.open) dialog.showModal();
+}
+function syncExploration() {
+  const found = keepsakesOf(save?.keepsakes).found;
+  main.querySelectorAll('.clue-count').forEach(n => n.textContent = String(found.length));
+  main.querySelectorAll('[data-clue]').forEach(button => {
+    const has = found.includes(button.dataset.clue);
+    button.classList.toggle('found', has);
+    button.setAttribute('aria-label', `${CLUES[button.dataset.clue].label} 살펴보기${has ? ' (발견함)' : ''}`);
+    button.querySelector('.hotspot-dot').textContent = has ? '✓' : '+';
+  });
+}
+function cutListMarkup(book) {
+  return book.cuts.map((id, i) => `<li class="cut-card" data-cut="${id}" tabindex="-1"><span class="cut-number">${String(i + 1).padStart(2, '0')}</span>${sketch(id)}<strong>${CUTS[id].title}</strong><div class="cut-controls"><button data-move="${i}" data-shift="-1" aria-label="${CUTS[id].title}, 앞으로 옮기기" ${i === 0 ? 'disabled' : ''}>←</button><button data-move="${i}" data-shift="1" aria-label="${CUTS[id].title}, 뒤로 옮기기" ${i === 2 ? 'disabled' : ''}>→</button></div></li>`).join('');
+}
+function openNotebook() {
+  if (!save) return;
+  clearTimeout(previewTimer);
+  save.keepsakes = keepsakesOf(save.keepsakes);
+  const book = save.keepsakes;
+  document.querySelector('#explore-body').innerHTML = `<span class="eyebrow">A STORY ONLY YOU CAN WRITE</span><h2 id="explore-title">내 공책의 첫 이야기</h2><p class="notebook-intro">세 장면의 순서를 바꿔보세요.<br>같은 장면도, 어디에 놓느냐에 따라 다른 이야기가 됩니다.</p><label class="notebook-label" for="book-title">이 이야기의 제목 <small>선택 사항 · 40자까지</small></label><input id="book-title" class="book-title-input" type="text" maxlength="40" placeholder="어떤 제목을 붙여볼까요?" value="${escape(book.title)}" autocomplete="off"><h3 class="notebook-label">이야기의 순서</h3><ol class="cut-list">${cutListMarkup(book)}</ol><div class="cut-preview"><div class="preview-screen" aria-live="polite"><span class="preview-hint">당신이 만든 순서로<br>작은 이야기를 상영해 보세요.</span></div><div class="preview-footer"><span class="preview-project">${escape(book.title.trim() || '이름 없는 이야기')}</span><button data-explore="preview">이야기 재생 <span aria-hidden="true">▷</span></button></div></div><p id="cut-status" class="notebook-status" role="status">제목과 순서는 자동으로 저장됩니다. 이후 장면과 엔딩에도 남아요.</p><section class="notebook-fragments"><h3>발견한 기억 조각 <span>${book.found.length}/3</span></h3>${book.found.length ? book.found.map(id => `<blockquote><span aria-hidden="true">${CLUES[id].symbol}</span><p>${CLUES[id].note}</p></blockquote>`).join('') : '<p>장면 속 물건을 살펴보면 이곳에 작은 기억이 모입니다.</p>'}</section>`;
+  const dialog = document.querySelector('#explore-dialog');
+  if (!dialog.open) dialog.showModal();
+  else document.querySelector('#book-title').focus();
+}
+function stopPreview() {
+  clearTimeout(previewTimer);
+  document.querySelectorAll('.cut-card').forEach(card => card.classList.remove('playing'));
+  const button = document.querySelector('[data-explore="preview"]');
+  if (button) { button.disabled = false; button.innerHTML = '이야기 재생 <span aria-hidden="true">▷</span>'; }
+}
+document.querySelector('#explore-dialog').addEventListener('input', event => {
+  if (event.target.id !== 'book-title' || !save) return;
+  save.keepsakes.title = keepsakesOf({ title: event.target.value }).title;
+  document.querySelector('.preview-project').textContent = save.keepsakes.title.trim() || '이름 없는 이야기';
+  persist();
+});
+document.querySelector('#explore-dialog').addEventListener('click', event => {
+  const button = event.target.closest('button'); if (!button || !save) return;
+  if (button.dataset.explore === 'notebook') return openNotebook();
+  if (button.hasAttribute('data-move')) {
+    const index = Number(button.dataset.move), delta = Number(button.dataset.shift);
+    const id = save.keepsakes.cuts[index];
+    stopPreview();
+    save.keepsakes.cuts = moveCut(save.keepsakes.cuts, index, delta); persist();
+    document.querySelector('.cut-list').innerHTML = cutListMarkup(save.keepsakes);
+    document.querySelector(`[data-cut="${id}"]`).focus();
+    document.querySelector('#cut-status').textContent = `‘${CUTS[id].title}’를 ${index + delta + 1}번째로 옮겼어요. 새 순서를 재생해 보세요.`;
+    return;
+  }
+  if (button.dataset.explore === 'preview') {
+    stopPreview(); button.disabled = true; button.textContent = '상영 중…';
+    const cuts = [...save.keepsakes.cuts];
+    const frame = i => {
+      if (!document.querySelector('#explore-dialog').open) return;
+      const id = cuts[i];
+      document.querySelector('.preview-screen').innerHTML = `<div class="preview-frame">${sketch(id)}<small>${i + 1} / 3 · ${CUTS[id].word}</small><strong>${CUTS[id].title}</strong><p>${CUTS[id].caption}</p></div>`;
+      document.querySelectorAll('.cut-card').forEach(card => card.classList.toggle('playing', card.dataset.cut === id));
+      if (i < 2) previewTimer = setTimeout(() => frame(i + 1), 1200);
+      else previewTimer = setTimeout(stopPreview, 1200);
+    };
+    frame(0);
+  }
+});
+document.querySelector('#explore-dialog').addEventListener('close', () => {
+  stopPreview();
+  if (location.hash === '#play' && save?.phase === 'scene') {
+    render();
+    main.querySelector('[data-action="notebook"]')?.focus({ preventScroll: true });
+  }
+});
+function applyBranch() {
+  if (!pendingBranch) return;
+  save = pendingBranch; pendingBranch = null; recordView = null; guessed = null;
+  persist(); navigate('#play');
+}
+function requestBranch(chapter) {
+  const entry = location.hash === '#records' && recordView !== null ? records[recordView] : save;
+  if (!entry || entry.choices.length !== 6) return;
+  pendingBranch = forkLife(entry.choices, chapter, entry.keepsakes);
+  if (save && save.phase !== 'ending') {
+    const dialog = document.querySelector('#branch-dialog');
+    dialog.returnValue = 'cancel'; dialog.showModal();
+  }
+  else applyBranch();
+}
+document.querySelector('#branch-dialog').addEventListener('close', event => {
+  if (event.target.returnValue === 'branch') applyBranch(); else pendingBranch = null;
+});
 function render({ focus = false } = {}) {
   const page = location.hash || '#home';
   let markup;
@@ -136,10 +255,13 @@ function choose(index) {
   save.choices.push(index); save.phase = 'echo'; persist(); render({ focus: true });
 }
 async function copyRecord() {
-  const choices = location.hash === '#records' && recordView !== null ? records[recordView]?.choices : save?.choices;
+  const entry = location.hash === '#records' && recordView !== null ? records[recordView] : save;
+  const choices = entry?.choices;
   if (!choices || choices.length !== 6) return;
   const result = endingFor(choices);
-  const text = `갈림 · ${result.title}\n${result.subtitle}\n\n${result.text}\n\n${journey(choices).map(j => `${j.chapter}. ${j.title}\n선택: ${j.choice}\n${j.result}`).join('\n\n')}\n\n이 경로는 가상의 이야기입니다.\n「갈림」 © 2026 jeiel85 · CC BY 4.0\nhttps://github.com/jeiel85/l-if-e\nhttps://creativecommons.org/licenses/by/4.0/\n`;
+  const book = keepsakesOf(entry.keepsakes);
+  const notebook = `공책: ${book.title.trim() || '이름 없는 이야기'}\n장면 순서: ${book.cuts.map(id => CUTS[id].title).join(' → ')}\n기억 조각: ${book.found.length ? book.found.map(id => CLUES[id].note).join(' / ') : '아직 발견하지 않음'}`;
+  const text = `갈림 · ${result.title}\n${result.subtitle}\n\n${result.text}\n\n${notebook}\n\n${journey(choices).map(j => `${j.chapter}. ${j.title}\n선택: ${j.choice}\n${j.result}`).join('\n\n')}\n\n이 경로는 가상의 이야기입니다.\n「갈림」 © 2026 jeiel85 · CC BY 4.0\nhttps://github.com/jeiel85/l-if-e\nhttps://creativecommons.org/licenses/by/4.0/\n`;
   try {
     await navigator.clipboard.writeText(text);
     notify('여섯 장면의 기록을 복사했어요. 원하는 곳에 붙여넣어 보관하세요.');
@@ -152,6 +274,8 @@ async function copyRecord() {
 }
 main.addEventListener('click', event => {
   const button = event.target.closest('button'); if (!button) return;
+  if (button.hasAttribute('data-clue')) return openClue(button.dataset.clue);
+  if (button.hasAttribute('data-branch')) return requestBranch(Number(button.dataset.branch));
   if (button.hasAttribute('data-choice')) return choose(Number(button.dataset.choice));
   if (button.hasAttribute('data-record')) { recordView = Number(button.dataset.record); guessed = null; return render({ focus: true }); }
   if (button.hasAttribute('data-guess')) {
@@ -161,6 +285,7 @@ main.addEventListener('click', event => {
     return;
   }
   switch (button.dataset.action) {
+    case 'notebook': openNotebook(); break;
     case 'start': start(); break;
     case 'continue': recordView = null; guessed = null; navigate('#play'); break;
     case 'restart': requestRestart(); break;
@@ -199,7 +324,11 @@ async function toggleSound() {
   } catch (error) { console.warn('Ambient audio unavailable:', error.name); notify('이 브라우저에서는 빗소리를 재생할 수 없어요. 소리 없이도 플레이할 수 있습니다.'); }
 }
 document.querySelector('#sound-button').addEventListener('click', () => toggleSound().catch(error => { console.warn('Audio toggle failed:', error.name); notify('소리를 전환하지 못했어요. 다시 눌러 주세요.'); }));
-window.addEventListener('hashchange', () => render({ focus: true }));
+window.addEventListener('hashchange', () => {
+  if (document.querySelector('#explore-dialog').open) document.querySelector('#explore-dialog').close();
+  if (document.querySelector('#branch-dialog').open) document.querySelector('#branch-dialog').close();
+  render({ focus: true });
+});
 loadStorage();
 if (save?.phase === 'ending') { archive(); persist(); }
 render();

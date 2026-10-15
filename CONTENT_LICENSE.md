@@ -9,6 +9,7 @@ Copyright © 2026 jeiel85.
 | 파일·구성 요소 | 적용 라이선스 |
 | --- | --- |
 | `game/dist/story.js`의 시나리오·선택지·결말 문자열 | CC BY 4.0 |
+| `game/dist/interactions.js`의 기억 조각·컷 설명 문구와 직접 제작한 컷 스케치 | CC BY 4.0 |
 | `game/dist/app.js`, `index.html`의 오리지널 화면 문구·설명 글 | CC BY 4.0 |
 | `game/dist/art.svg`, `game/dist/favicon.svg`, HTML 안의 직접 제작한 아이콘 | CC BY 4.0 |
 | README와 `docs/`의 직접 작성한 설명·기획 문서, 직접 촬영한 게임 스크린샷 | CC BY 4.0 |
