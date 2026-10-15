@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#e9eeeb">
+  <meta name="description" content="여섯 번의 선택, 하나의 다른 삶. 어느 창작자의 삶에서 영감을 얻은 인터랙티브 인생 이야기, 갈림.">
+  <meta property="og:title" content="갈림 · 나였다면, 어떤 삶을 살았을까">
+  <meta property="og:description" content="아직 이름을 알 수 없는 한 사람의 삶에 들어가 보세요. 당신의 선택이 다음 장면을 바꿉니다.">
+  <meta property="og:type" content="website">
+  <title>갈림 · 선택으로 다시 쓰는 삶</title>
+  <link rel="icon" href="./favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="./style.css">
+  <script type="module" src="./app.js"></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">본문으로 건너뛰기</a>
+  <header class="site-header">
+    <a href="#home" class="brand" aria-label="갈림, 처음으로"><svg viewBox="0 0 32 32" aria-hidden="true"><path d="M16 27V17M16 17 5 6M16 17 27 6M5 6v8M5 6h8M27 6v8M27 6h-8"/></svg><span>갈림<span class="brand-dot">.</span></span><span class="brand-caption">선택으로 다시 쓰는 삶</span></a>
+    <nav aria-label="주 메뉴"><a href="#home" data-nav="home">이야기</a><a href="#records" data-nav="records">나의 기록 <span id="record-count">0</span></a><a href="#about" data-nav="about">이야기의 재료</a></nav>
+    <button id="sound-button" class="sound-button" aria-pressed="false" aria-label="빗소리 켜기"><span aria-hidden="true">♫</span><span class="sound-label">빗소리 꺼짐</span></button>
+  </header>
+  <aside class="legacy-notice">이전 방식의 플레이와 기록입니다. <a href="./index.html#play">새로운 생활 공간으로 돌아가기 ↗</a></aside><main id="main" tabindex="-1"></main>
+  <footer class="site-footer"><span>모든 삶에는, 쓰이지 않은 장면이 있다.</span><div><a href="https://github.com/jeiel85/l-if-e" target="_blank" rel="noopener noreferrer">GitHub ↗</a><a href="#credits">라이선스 & 출처</a><span>© 2026 jeiel85</span></div></footer>
+  <dialog id="restart-dialog" aria-labelledby="restart-title"><form method="dialog"><span class="eyebrow">A NEW BEGINNING</span><h2 id="restart-title">다시 시작할까요?</h2><p>진행 중인 삶은 처음으로 돌아갑니다.<br>이미 완성한 삶의 기록은 남아 있어요.</p><div class="dialog-actions"><button class="button secondary" value="cancel">계속 이어가기</button><button class="button primary" value="restart">처음부터 시작</button></div></form></dialog>
+  <dialog id="record-dialog" aria-labelledby="record-title"><form method="dialog"><span class="eyebrow">YOUR LIFE, IN WORDS</span><h2 id="record-title">이 삶의 기록</h2><p>아래 기록을 선택해 복사할 수 있어요.</p><label for="record-text">여섯 장면의 기록</label><textarea id="record-text" readonly rows="12"></textarea><button class="button primary" value="close">닫기</button></form></dialog>
+  <dialog id="explore-dialog" aria-labelledby="explore-title"><div id="explore-body"></div><form method="dialog" class="explore-close"><button class="button secondary" value="close">장면으로 돌아가기</button></form></dialog>
+  <dialog id="branch-dialog" aria-labelledby="branch-title"><form method="dialog"><span class="eyebrow">ANOTHER POSSIBILITY</span><h2 id="branch-title">이 장면부터 다시 살아볼까요?</h2><p>현재 진행 중인 삶은 새 경로로 바뀝니다. 이미 완성한 삶의 기록은 보관됩니다.</p><div class="dialog-actions"><button class="button secondary" value="cancel">지금의 삶 이어가기</button><button class="button primary" value="branch">이 지점으로 돌아가기</button></div></form></dialog>
+  <div id="notice" class="notice" role="status"></div>
+  <noscript>이 게임을 플레이하려면 브라우저에서 JavaScript를 켜 주세요.</noscript>
+</body>
+</html>
