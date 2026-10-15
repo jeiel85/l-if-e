@@ -69,7 +69,15 @@ npm start
 PORT=8080 npm start
 ```
 
-`file://`로 HTML을 직접 열지 말고 HTTP 서버로 실행해 주세요. 배포 대상은 `game/dist/` 전체입니다. ES 모듈을 제공할 수 있는 정적 호스팅에서 실행할 수 있습니다. 로컬 서버는 미리보기 전용입니다.
+`file://`로 HTML을 직접 열지 말고 HTTP 서버로 실행해 주세요. 로컬 서버는 미리보기 전용입니다.
+
+### 정적 사이트로 배포
+
+```bash
+npm run build
+```
+
+의존성 설치 없이 `game/dist/`의 파일을 루트 `dist/`에 복사하고 원본과 바이트 일치를 확인합니다. 배포 디렉터리는 **`dist/`**입니다. ES 모듈을 제공할 수 있는 정적 호스팅에서 실행할 수 있습니다. Sites 배포 설정은 `.openai/hosting.json`에 있습니다. 자체 사이트로 포크할 때는 이 파일의 원본 프로젝트 ID를 새 사이트의 값으로 바꿔 주세요.
 
 ## 검증
 
@@ -96,6 +104,7 @@ game/
   tests/
     story.test.mjs   # 전체 경로와 분기 검증
 scripts/
+  build.mjs          # 정적 배포 파일 복사와 바이트 검증
   serve.mjs          # 의존성 없는 로컬 미리보기 서버
 docs/
   episode-01-design.md
